@@ -6,12 +6,10 @@ import { PORT } from "./server/config/config.js";
 
 import { connectDB } from "./server/config/db.js";
 import facturaRoutes from "./server/routes/Factura.js";
-import deliveryRoutes from "./server/routes/delivery.js";
 import codFacturaRoutes from "./server/routes/codigoFactura.js";
 import anularRoutes from "./server/routes/anular.js";
 import gastoRoutes from "./server/routes/gastos.js";
 import cuadreDiarioRoutes from "./server/routes/cuadreDiario.js";
-import prendasRoutes from "./server/routes/prendas.js";
 import clientesRoutes from "./server/routes/clientes.js";
 import puntosRoutes from "./server/routes/puntos.js";
 import impuestoRoutes from "./server/routes/impuesto.js";
@@ -27,6 +25,10 @@ import categoriasRoutes from "./server/routes/categorias.js";
 import productosRoutes from "./server/routes/portafolio/productos.js";
 import serviciosRoutes from "./server/routes/portafolio/servicios.js";
 import portafolioRoutes from "./server/routes/portafolio/portafolio.js";
+import pagosRoutes from "./server/routes/pagos.js";
+import tipoGastosRoutes from "./server/routes/tipoGasto.js";
+import asistenciaRoutes from "./server/routes/personal/asistencia.js";
+import personalRoutes from "./server/routes/personal/personal.js";
 
 import { timeZone } from "./server/utils/varsGlobal.js";
 import moment from "moment";
@@ -56,32 +58,15 @@ io.on("connection", (socket) => {
 
   // Maneja eventos cuando el cliente envía un mensaje
   socket.on("client:newOrder", (info) => {
-    const { newOrder } = info;
-    if ("newDelivery" in info) {
-      const { newDelivery } = info;
-      socket.broadcast.emit("server:newDelivery", newDelivery);
-    }
-
-    // Envía el mensaje a todos los clientes conectados
-    if ("newCodigo" in info) {
-      const { newCodigo } = info;
-      io.emit("server:newCodigo", newCodigo);
-    }
-
-    socket.broadcast.emit("server:newOrder", newOrder);
+    socket.broadcast.emit("server:newOrder", info);
   });
+
+  socket.on("client:updateCodigo", (info) => {
+    io.emit("server:updateCodigo", info);
+  });
+
   socket.on("client:updateOrder", (info) => {
     const { orderUpdated } = info;
-
-    if ("updateDelivery" in info) {
-      const { updateDelivery } = info;
-      socket.broadcast.emit("server:updateDelivery", updateDelivery);
-    }
-
-    if ("newDelivery" in info) {
-      const { newDelivery } = info;
-      socket.broadcast.emit("server:newDelivery", newDelivery);
-    }
 
     socket.broadcast.emit("server:orderUpdated", orderUpdated);
     socket.broadcast.emit("server:orderUpdated:child", orderUpdated);
@@ -146,11 +131,16 @@ io.on("connection", (socket) => {
   });
 
   socket.on("client:cGasto", (info) => {
-    socket.broadcast.emit("server:cGasto", info);
+    // socket.broadcast.emit("server:cGasto", info);
+    io.emit("server:cGasto", info);
   });
 
   socket.on("client:cImpuesto", (info) => {
     socket.broadcast.emit("server:cImpuesto", info);
+  });
+
+  socket.on("client:cPago", (info) => {
+    io.emit("server:cPago", info);
   });
 
   // Maneja el evento cuando un cliente se desconecta
@@ -164,16 +154,12 @@ io.on("connection", (socket) => {
 app.use("/api/lava-ya/", facturaRoutes);
 // Codigo
 app.use("/api/lava-ya/", codFacturaRoutes);
-// Delivery
-app.use("/api/lava-ya/", deliveryRoutes);
 // Anular
 app.use("/api/lava-ya/", anularRoutes);
 // Gasto
 app.use("/api/lava-ya/", gastoRoutes);
 // Cuadre Diario
 app.use("/api/lava-ya/", cuadreDiarioRoutes);
-// Prendas
-app.use("/api/lava-ya/", prendasRoutes);
 // Clientes
 app.use("/api/lava-ya/", clientesRoutes);
 // Puntos
@@ -204,6 +190,33 @@ app.use("/api/lava-ya/", productosRoutes);
 app.use("/api/lava-ya/", serviciosRoutes);
 // Portafolio
 app.use("/api/lava-ya/", portafolioRoutes);
+// Pagos
+app.use("/api/lava-ya/", pagosRoutes);
+// TipoGastos
+app.use("/api/lava-ya/", tipoGastosRoutes);
+// Asistencia
+app.use("/api/lava-ya/", asistenciaRoutes);
+// Personal
+app.use("/api/lava-ya/", personalRoutes);
 
-server.listen(PORT);
-console.log("Server Iniciado en puerto: " + PORT);
+server.listen(PORT, () => {
+  console.log("Server Iniciado en puerto: " + PORT);
+});
+
+app.get("/", (req, res) => {
+  // Aquí puedes definir el HTML que quieres enviar como respuesta
+  const htmlResponse = `
+    <html>
+      <head>
+        <title>Estado del Servidor</title>
+      </head>
+      <body>
+        <h1>Estado del Servidor</h1>
+        <p>El servidor está funcionando correctamente.</p>
+      </body>
+    </html>
+  `;
+
+  // Envía el HTML como respuesta
+  res.send(htmlResponse);
+});

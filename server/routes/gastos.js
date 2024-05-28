@@ -1,54 +1,160 @@
-import express from 'express';
-import Gasto from '../models/gastos.js';
-import { openingHours } from '../middleware/middleware.js';
+import express from "express";
+import Gasto from "../models/gastos.js";
+import TipoGasto from "../models/tipoGastos.js";
+import { openingHours } from "../middleware/middleware.js";
+import { handleGetInfoUser } from "./cuadreDiario.js";
+import moment from "moment";
+import Usuarios from "../models/usuarios/usuarios.js";
 const router = express.Router();
 
-router.post('/add-gasto', openingHours, (req, res) => {
+export const handleAddGasto = async (nuevoGasto) => {
+  try {
+    // Crea una instancia del modelo Gasto con los datos del nuevo gasto
+    const gastoNuevo = new Gasto(nuevoGasto);
+
+    // Guarda el nuevo gasto en la base de datos
+    const gastoGuardado = await gastoNuevo.save();
+    const gastoS = gastoGuardado.toObject();
+    // Devuelve el gasto guardado
+    return {
+      tipo: "added",
+      info: {
+        ...gastoS,
+        infoUser: await handleGetInfoUser(gastoS.idUser),
+      },
+    };
+  } catch (error) {
+    console.error("Error al agregar gasto:", error);
+    throw error; // Puedes manejar el error según tus necesidades
+  }
+};
+
+router.post("/add-gasto", openingHours, (req, res) => {
   const { infoGasto } = req.body;
-  const { descripcion, fecha, hora, monto, idUser, idCuadre } = infoGasto;
+  const { idTipoGasto, tipo, motivo, monto, idUser } = infoGasto;
+
+  const date = {
+    fecha: moment().format("YYYY-MM-DD"),
+    hora: moment().format("HH:mm"),
+  };
 
   const newGasto = new Gasto({
-    descripcion,
-    fecha,
-    hora,
+    idTipoGasto,
+    tipo,
+    motivo,
+    date,
     monto,
     idUser,
-    idCuadre,
   });
 
   newGasto
     .save()
-    .then((gastoSaved) => {
-      res.json(gastoSaved);
+    .then(async (gastoSaved) => {
+      const gastoS = gastoSaved.toObject();
+      res.json({
+        tipo: "added",
+        info: {
+          ...gastoS,
+          infoUser: await handleGetInfoUser(gastoS.idUser),
+        },
+      });
     })
     .catch((error) => {
-      console.error('Error al Guardar Delivery:', error);
-      res.status(500).json({ mensaje: 'Error al Guardar Delivery' });
+      console.error("Error al Guardar Delivery:", error);
+      res.status(500).json({ mensaje: "Error al Guardar Delivery" });
     });
 });
 
-router.get('/get-gastos', (req, res) => {
-  Gasto.find()
-    .then((infoGastos) => {
-      res.json(infoGastos);
-    })
-    .catch((error) => {
-      console.error('Error al obtener los datos:', error);
-      res.status(500).json({ mensaje: 'Error al obtener los datos' });
+router.get("/get-gastos/:fecha", async (req, res) => {
+  try {
+    const fecha = req.params.fecha;
+
+    // Parsear la fecha usando Moment.js
+    const momentFecha = moment(fecha, "YYYY-MM-DD");
+    const inicioMes = moment(momentFecha).startOf("month").format("YYYY-MM-DD");
+    const finMes = moment(momentFecha).endOf("month").format("YYYY-MM-DD");
+
+    // Consultar todos los tipos de gastos
+    const tiposGastos = await TipoGasto.find();
+
+    // Consultar los gastos en el rango de fechas especificado
+    const gastos = await Gasto.find({
+      "date.fecha": {
+        $gte: inicioMes,
+        $lte: finMes,
+      },
     });
+
+    // Obtener los IDs de los usuarios de los gastos
+    const usuariosIds = [...new Set(gastos.map((gasto) => gasto.idUser))];
+
+    // Consultar la información de usuario solo para los IDs necesarios
+    const usuariosInfo = await Usuarios.find(
+      { _id: { $in: usuariosIds } },
+      { name: 1, rol: 1 }
+    );
+
+    // Convertir la información de usuario a un mapa para un acceso más eficiente
+    const usuariosMap = usuariosInfo.reduce((map, usuario) => {
+      map[usuario._id] = { name: usuario.name, rol: usuario.rol };
+      return map;
+    }, {});
+
+    // Agrupar los gastos por tipo de gasto
+    const tipoGastosArray = [];
+    for (const tipo of tiposGastos) {
+      const gastosTipo = gastos.filter(
+        (gasto) => gasto.idTipoGasto === tipo._id.toString()
+      );
+
+      const totalMonto = gastosTipo.reduce(
+        (total, gasto) => total + parseFloat(gasto.monto),
+        0
+      );
+      const infoGastos = gastosTipo.map((gasto) => ({
+        motivo: gasto.motivo,
+        date: gasto.date,
+        monto: parseFloat(gasto.monto),
+        infoUser: usuariosMap[gasto.idUser] || null,
+      }));
+
+      tipoGastosArray.push({
+        id: tipo._id,
+        name: tipo.name,
+        cantidad: gastosTipo.length,
+        monto: totalMonto,
+        infoGastos: infoGastos,
+      });
+    }
+
+    res.json(tipoGastosArray);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Error interno del servidor" });
+  }
 });
 
-router.get('/get-gastos-date/:fecha', (req, res) => {
-  const { fecha } = req.params;
+// Ruta para eliminar un gasto por su ID
+router.delete("/delete-gasto/:id", openingHours, async (req, res) => {
+  const { id } = req.params;
 
-  Gasto.find({ fecha })
-    .then((infoGastos) => {
-      res.json(infoGastos);
-    })
-    .catch((error) => {
-      console.error('Error al obtener los datos:', error);
-      res.status(500).json({ mensaje: 'Error al obtener los datos' });
+  try {
+    // Buscar y eliminar el gasto por su ID
+    const gastoEliminado = await Gasto.findByIdAndDelete(id);
+    if (!gastoEliminado) {
+      throw new Error("No se encontró el gasto para eliminar");
+    }
+
+    res.json({
+      tipo: "deleted",
+      info: {
+        ...gastoEliminado.toObject(),
+      },
     });
+  } catch (error) {
+    console.error("Error al eliminar gasto:", error);
+    res.status(500).json({ mensaje: "Error al eliminar el gasto" });
+  }
 });
 
 export default router;
